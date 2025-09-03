@@ -60,12 +60,14 @@ spec:
     memory: "1g"
 
   sparkConf:
-    "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
-    "spark.hadoop.fs.s3a.path.style.access": "true"
-    "spark.hadoop.fs.s3a.connection.ssl.enabled": "false"
-    "spark.hadoop.fs.s3a.access.key": "{{ conn.minio_default.login }}"
-    "spark.hadoop.fs.s3a.secret.key": "{{ conn.minio_default.password }}"
-    "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+   "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
+   "spark.hadoop.fs.s3a.path.style.access": "true"
+   "spark.hadoop.fs.s3a.connection.ssl.enabled": "false"
+   "spark.hadoop.fs.s3a.access.key": "{{ conn.minio_default.login }}"
+   "spark.hadoop.fs.s3a.secret.key": "{{ conn.minio_default.password }}"
+   "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+   "spark.jars.ivy": "/tmp/.ivy2"
+   "spark.kubernetes.submission.localDir": "/tmp"
 """,
         kubernetes_conn_id="kubernetes_default",
         do_xcom_push=False,
