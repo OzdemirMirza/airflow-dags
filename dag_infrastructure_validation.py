@@ -22,9 +22,9 @@ def infrastructure_validation_dag():
     )
 
     read_file_with_spark = SparkKubernetesOperator(
-        task_id="read_file_with_spark",
-        namespace="spark-processing",
-        application_file="""
+    task_id="read_file_with_spark",
+    namespace="spark-processing",
+    application_file="""
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication
 metadata:
@@ -33,13 +33,13 @@ metadata:
 spec:
   type: Python
   mode: cluster
-  image: apache/spark-py:v3.5.0
+  image: ghcr.io/apache/spark-py:v3.5.1
   imagePullPolicy: IfNotPresent
-  sparkVersion: "3.5.0"
+  sparkVersion: "3.5.1"
 
   mainApplicationFile: local:///opt/spark/examples/src/main/python/wordcount.py
   arguments:
-    - s3a://earthquake-data/validation/source_file.txt
+    - "s3a://earthquake-data/validation/source_file.txt"
 
   deps:
     packages:
@@ -60,14 +60,14 @@ spec:
     memory: "1g"
 
   sparkConf:
-   "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
-   "spark.hadoop.fs.s3a.path.style.access": "true"
-   "spark.hadoop.fs.s3a.connection.ssl.enabled": "false"
-   "spark.hadoop.fs.s3a.access.key": "{{ conn.minio_default.login }}"
-   "spark.hadoop.fs.s3a.secret.key": "{{ conn.minio_default.password }}"
-   "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
-   "spark.jars.ivy": "/tmp/.ivy2"
-   "spark.kubernetes.submission.localDir": "/tmp"
+    "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
+    "spark.hadoop.fs.s3a.path.style.access": "true"
+    "spark.hadoop.fs.s3a.connection.ssl.enabled": "false"
+    "spark.hadoop.fs.s3a.access.key": "{{ conn.minio_default.login }}"
+    "spark.hadoop.fs.s3a.secret.key": "{{ conn.minio_default.password }}"
+    "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+    "spark.jars.ivy": "/tmp/.ivy2"
+    "spark.kubernetes.submission.localDir": "/tmp"
 """,
         kubernetes_conn_id="kubernetes_default",
         do_xcom_push=False,
