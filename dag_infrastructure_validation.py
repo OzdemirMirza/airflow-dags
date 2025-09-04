@@ -45,13 +45,11 @@ spec:
   sparkVersion: "3.5.0"
 
   mainApplicationFile: local:///opt/spark-apps/app.py
-  arguments:
-    - "4"   
+  arguments: ["4"]
 
   restartPolicy:
     type: Never
 
-  # ConfigMap'i hem driver hem executor'a mount et
   volumes:
     - name: app
       configMap:
@@ -74,13 +72,10 @@ spec:
         mountPath: /opt/spark-apps
 
   sparkConf:
-    # küçük cluster kaynakları
     "spark.kubernetes.driver.request.cores": "100m"
     "spark.kubernetes.executor.request.cores": "100m"
     "spark.kubernetes.driver.memoryOverhead": "256m"
     "spark.kubernetes.executor.memoryOverhead": "256m"
-
-    # Kerberos saçmalığını kapat / user sabitle
     "spark.hadoop.security.authentication": "simple"
     "spark.kubernetes.driverEnv.USER": "spark"
     "spark.kubernetes.executorEnv.USER": "spark"
@@ -89,8 +84,6 @@ spec:
     "spark.kubernetes.executorEnv.JAVA_TOOL_OPTIONS": "-Duser.name=spark"
     "spark.driver.extraJavaOptions": "-Duser.name=spark"
     "spark.executor.extraJavaOptions": "-Duser.name=spark"
-
-    # ivy/tmp
     "spark.jars.ivy": "/tmp/.ivy2"
     "spark.kubernetes.submission.localDir": "/tmp"
 """
