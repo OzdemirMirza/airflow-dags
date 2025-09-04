@@ -1,19 +1,22 @@
-# dags/infrastructure_validation.py
 from __future__ import annotations
 import pendulum
 from airflow.decorators import dag
 from airflow.providers.amazon.aws.operators.s3 import S3CreateObjectOperator
 from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKubernetesOperator
+from airflow.providers.cncf.kubernetes.sensors.spark_kubernetes import SparkKubernetesSensor
+# (İstersen işi bitince CRD’yi silmek için:)
+from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKubernetesDeleteOperator
 
 @dag(
     dag_id="infrastructure_validation",
     start_date=pendulum.datetime(2025, 9, 3, tz="Europe/Istanbul"),
     schedule=None,
     catchup=False,
-    tags=["infrastructure", "validation", "git-sync"],
+    tags=["infra","spark","minio"],
 )
 def infrastructure_validation_dag():
-    # 1) MinIO'ya test dosyası yaz
+
+    # 1) MinIO’ya test dosyası yaz
     create_test_file_in_minio = S3CreateObjectOperator(
         task_id="create_test_file_in_minio",
         aws_conn_id="minio_default",
@@ -23,12 +26,11 @@ def infrastructure_validation_dag():
         replace=True,
     )
 
-    # 2) Spark ile dosyayı oku (küçük kaynak değerleri!)
-    read_file_with_spark = SparkKubernetesOperator(
-        task_id="read_file_with_spark",
+    # 2) SparkApplication CRD’yi oluştur (SUBMIT)
+    submit_spark = SparkKubernetesOperator(
+        task_id="submit_spark",
         namespace="spark-processing",
         kubernetes_conn_id="kubernetes_default",
-        do_xcom_push=False,
         application_file="""
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication
@@ -38,19 +40,13 @@ metadata:
 spec:
   type: Python
   mode: cluster
-  image: "bitnami/spark:3.5.0"
+  image: bitnami/spark:3.5.0
   imagePullPolicy: IfNotPresent
   sparkVersion: "3.5.0"
 
   mainApplicationFile: local:///opt/bitnami/spark/examples/src/main/python/wordcount.py
   arguments:
     - "s3a://earthquake-data/validation/source_file.txt"
-
-  # AWS/MinIO s3a için gerekli paketleri al; ivy'yi /tmp'ye yaz
-  deps:
-    packages:
-      - "org.apache.hadoop:hadoop-aws:3.3.4"
-      - "com.amazonaws:aws-java-sdk-bundle:1.12.262"
 
   restartPolicy:
     type: Never
@@ -80,8 +76,31 @@ spec:
     "spark.jars.ivy": "/tmp/.ivy2"
     "spark.kubernetes.submission.localDir": "/tmp"
 """,
+        do_xcom_push=False,   # sadece CRD yaratıyoruz, beklemiyoruz
     )
 
-    create_test_file_in_minio >> read_file_with_spark
+    # 3) SparkApplication durumunu bekle (COMPLETED/FAILED)
+    wait_spark = SparkKubernetesSensor(
+        task_id="wait_spark",
+        namespace="spark-processing",
+        kubernetes_conn_id="kubernetes_default",
+        application_name="spark-validation-{{ ds_nodash }}",
+        attach_log=True,         # driver loglarını UI’a akıtmaya çalışır
+        timeout=60*30,           # 30 dk
+        poke_interval=10,        # her 10 sn’de bir kontrol
+        mode="reschedule",       # worker slotunu meşgul etmez
+    )
+
+    # 4) (Opsiyonel) İş bitince CRD’yi sil
+    cleanup = SparkKubernetesDeleteOperator(
+        task_id="cleanup_spark_app",
+        namespace="spark-processing",
+        kubernetes_conn_id="kubernetes_default",
+        application_name="spark-validation-{{ ds_nodash }}",
+        delete_on_termination=True,
+        trigger_rule="all_done",
+    )
+
+    create_test_file_in_minio >> submit_spark >> wait_spark >> cleanup
 
 infrastructure_validation_dag()
