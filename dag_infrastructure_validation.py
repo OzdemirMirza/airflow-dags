@@ -35,8 +35,8 @@ def infra_validation():
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication
 metadata:
-  name: {APP_NAME}
-  namespace: {NS}
+  name: spark-validation-{{ ts_nodash }}
+  namespace: spark-processing
 spec:
   type: Python
   mode: cluster
@@ -48,20 +48,16 @@ spec:
   arguments:
     - "s3a://earthquake-data/validation/source_file.txt"
 
-  restartPolicy:
-    type: Never
+  restartPolicy: { type: Never }
 
   driver:
     serviceAccount: spark-sa
     cores: 1
     memory: "768m"
     env:
-      - name: USER
-        value: "spark"
-      - name: HADOOP_USER_NAME
-        value: "spark"
-      - name: JAVA_TOOL_OPTIONS
-        value: "-Duser.name=spark"
+      - { name: USER, value: "spark" }
+      - { name: HADOOP_USER_NAME, value: "spark" }
+      - { name: JAVA_TOOL_OPTIONS, value: "-Duser.name=spark" }
 
   executor:
     serviceAccount: spark-sa
@@ -69,28 +65,26 @@ spec:
     cores: 1
     memory: "512m"
     env:
-      - name: USER
-        value: "spark"
-      - name: HADOOP_USER_NAME
-        value: "spark"
-      - name: JAVA_TOOL_OPTIONS
-        value: "-Duser.name=spark"
+      - { name: USER, value: "spark" }
+      - { name: HADOOP_USER_NAME, value: "spark" }
+      - { name: JAVA_TOOL_OPTIONS, value: "-Duser.name=spark" }
 
   sparkConf:
+    "spark.hadoop.security.authentication": "simple"
     "spark.kubernetes.driver.request.cores": "100m"
     "spark.kubernetes.executor.request.cores": "100m"
     "spark.kubernetes.driver.memoryOverhead": "256m"
     "spark.kubernetes.executor.memoryOverhead": "256m"
 
-    "spark.hadoop.security.authentication": "simple"
-
+    # MinIO
     "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
     "spark.hadoop.fs.s3a.path.style.access": "true"
     "spark.hadoop.fs.s3a.connection.ssl.enabled": "false"
-    "spark.hadoop.fs.s3a.access.key": "{{{{ conn.minio_default.login }}}}"
-    "spark.hadoop.fs.s3a.secret.key": "{{{{ conn.minio_default.password }}}}"
+    "spark.hadoop.fs.s3a.access.key": "{{ conn.minio_default.login }}"
+    "spark.hadoop.fs.s3a.secret.key": "{{ conn.minio_default.password }}"
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
 
+    # Ivy/tmp
     "spark.jars.ivy": "/tmp/.ivy2"
     "spark.kubernetes.submission.localDir": "/tmp"
 
