@@ -16,15 +16,17 @@ NS = "spark-processing"
 )
 def infra_validation():
 
+    # 1) MinIO'ya test dosyası yaz
     write_minio = S3CreateObjectOperator(
         task_id="create_test_file_in_minio",
         aws_conn_id="minio_default",
         s3_bucket="earthquake-data",
         s3_key="validation/source_file.txt",
-        data="Infrastructure validation successful!",
+        data="hello\nworld\nspark\n",
         replace=True,
     )
 
+    # 2) SparkApplication gönder (K8s CRD)
     submit_spark = SparkKubernetesOperator(
         task_id="submit_spark",
         namespace=NS,
@@ -43,24 +45,47 @@ spec:
   imagePullPolicy: IfNotPresent
   sparkVersion: "3.5.0"
 
-  mainApplicationFile: local:///opt/bitnami/spark/examples/src/main/python/wordcount.py
-  arguments:
-    - s3a://earthquake-data/validation/source_file.txt
+  # Kod: ConfigMap'ten mount edip local:/// ile çalıştırıyoruz
+  mainApplicationFile: local:///opt/spark-apps/app.py
 
   restartPolicy:
     type: Never
 
+  # Hem driver hem executor aynı SA ve env ile
   driver:
     serviceAccount: spark-sa
     cores: 1
     memory: "768m"
+    env:
+      - name: USER
+        value: spark
+      - name: HADOOP_USER_NAME
+        value: spark
+    volumeMounts:
+      - name: app-code
+        mountPath: /opt/spark-apps
 
   executor:
     serviceAccount: spark-sa
     instances: 1
     cores: 1
     memory: "512m"
+    env:
+      - name: USER
+        value: spark
+      - name: HADOOP_USER_NAME
+        value: spark
+    volumeMounts:
+      - name: app-code
+        mountPath: /opt/spark-apps
 
+  # ConfigMap'i her iki tarafa mount et
+  volumes:
+    - name: app-code
+      configMap:
+        name: spark-app
+
+  # S3A bağımlılıkları (driver & executor otomatik indirir)
   deps:
     packages:
       - org.apache.hadoop:hadoop-aws:3.3.4
@@ -77,9 +102,6 @@ spec:
 
     # Kerberos'a düşmesin
     spark.hadoop.security.authentication: simple
-    spark.kubernetes.driverEnv.USER: spark
-    spark.kubernetes.executorEnv.USER: spark
-    spark.kubernetes.executorEnv.HADOOP_USER_NAME: spark
 
     # Küçük cluster kaynakları
     spark.kubernetes.driver.request.cores: "100m"
@@ -90,9 +112,13 @@ spec:
     # Ivy/tmp
     spark.jars.ivy: /tmp/.ivy2
     spark.kubernetes.submission.localDir: /tmp
+
+    # Debug için (executor düşse de log kalır)
+    spark.kubernetes.executor.deleteOnTermination: "false"
 """,
     )
 
+    # 3) Spark bitti mi sensörle bekle
     wait_spark = SparkKubernetesSensor(
         task_id="wait_spark",
         namespace=NS,
