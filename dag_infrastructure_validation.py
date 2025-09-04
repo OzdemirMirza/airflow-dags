@@ -2,13 +2,20 @@ from __future__ import annotations
 import pendulum
 from airflow.decorators import dag
 from airflow.providers.amazon.aws.operators.s3 import S3CreateObjectOperator
-from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
 
-DAG_ID = "infra_validation_local_spark"
-NS_RUN = "spark-processing"   # Pod bu namespace'te koşacak
+# KubernetesPodOperator için sürüme göre esnek import
+try:
+    from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
+except Exception:
+    try:
+        from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+    except Exception:
+        from airflow.contrib.operators.kubernetes_pod_operator import KubernetesPodOperator  # çok eski sürüm fallback
+
+NS_RUN = "spark-processing"
 
 @dag(
-    dag_id=DAG_ID,
+    dag_id="infra_validation_local_spark",
     start_date=pendulum.datetime(2025, 9, 3, tz="Europe/Istanbul"),
     schedule=None,
     catchup=False,
@@ -16,7 +23,6 @@ NS_RUN = "spark-processing"   # Pod bu namespace'te koşacak
 )
 def infra_validation_local():
 
-    # 1) MinIO'ya test dosyası yaz
     write_minio = S3CreateObjectOperator(
         task_id="create_test_file_in_minio",
         aws_conn_id="minio_default",
@@ -26,14 +32,13 @@ def infra_validation_local():
         replace=True,
     )
 
-    # 2) K8S üzerinde Spark (LOCAL mode) koştur
     run_spark_local = KubernetesPodOperator(
         task_id="run_spark_local",
         name="run-spark-local",
         namespace=NS_RUN,
+        kubernetes_conn_id="kubernetes_default",
         image="bitnami/spark:3.5.0",
         image_pull_policy="IfNotPresent",
-        kubernetes_conn_id="kubernetes_default",
         get_logs=True,
         is_delete_operator_pod=True,
         cmds=["/opt/bitnami/spark/bin/spark-submit"],
