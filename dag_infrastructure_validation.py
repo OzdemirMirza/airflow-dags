@@ -2,120 +2,71 @@ from __future__ import annotations
 import pendulum
 from airflow.decorators import dag
 from airflow.providers.amazon.aws.operators.s3 import S3CreateObjectOperator
-from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKubernetesOperator
-from airflow.providers.cncf.kubernetes.sensors.spark_kubernetes import SparkKubernetesSensor
+from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
 
-NS = "spark-processing"
+DAG_ID = "infra_validation_local_spark"
+NS_RUN = "spark-processing"   # Pod bu namespace'te koşacak
 
 @dag(
-    dag_id="infrastructure_validation",
+    dag_id=DAG_ID,
     start_date=pendulum.datetime(2025, 9, 3, tz="Europe/Istanbul"),
     schedule=None,
     catchup=False,
-    tags=["infra","spark","minio"],
+    tags=["infra","spark","minio","k8s"],
 )
-def infra_validation():
+def infra_validation_local():
 
+    # 1) MinIO'ya test dosyası yaz
     write_minio = S3CreateObjectOperator(
         task_id="create_test_file_in_minio",
         aws_conn_id="minio_default",
         s3_bucket="earthquake-data",
         s3_key="validation/source_file.txt",
-        data="hello\nworld\nspark\n",
+        data="hello spark from airflow via minio",
         replace=True,
     )
 
-    submit_spark = SparkKubernetesOperator(
-        task_id="submit_spark",
-        namespace=NS,
+    # 2) K8S üzerinde Spark (LOCAL mode) koştur
+    run_spark_local = KubernetesPodOperator(
+        task_id="run_spark_local",
+        name="run-spark-local",
+        namespace=NS_RUN,
+        image="bitnami/spark:3.5.0",
+        image_pull_policy="IfNotPresent",
         kubernetes_conn_id="kubernetes_default",
-        do_xcom_push=False,
-        application_file="""
-apiVersion: sparkoperator.k8s.io/v1beta2
-kind: SparkApplication
-metadata:
-  name: spark-validation-{{ ts_nodash }}
-  namespace: spark-processing
-spec:
-  type: Python
-  mode: cluster
-  image: bitnami/spark:3.5.0
-  imagePullPolicy: IfNotPresent
-  sparkVersion: "3.5.0"
-
-  mainApplicationFile: local:///opt/spark-apps/app.py
-
-  restartPolicy:
-    type: Never
-
-  driver:
-    serviceAccount: spark-sa
-    cores: 1
-    memory: "768m"
-    env:
-      - name: USER
-        value: spark
-      - name: HADOOP_USER_NAME
-        value: spark
-    volumeMounts:
-      - name: app-code
-        mountPath: /opt/spark-apps
-
-  executor:
-    serviceAccount: spark-sa
-    instances: 1
-    cores: 1
-    memory: "512m"
-    env:
-      - name: USER
-        value: spark
-      - name: HADOOP_USER_NAME
-        value: spark
-    volumeMounts:
-      - name: app-code
-        mountPath: /opt/spark-apps
-
-  volumes:
-    - name: app-code
-      configMap:
-        name: spark-app
-
-  deps:
-    packages:
-      - org.apache.hadoop:hadoop-aws:3.3.4
-      - com.amazonaws:aws-java-sdk-bundle:1.12.262
-
-  sparkConf:
-    spark.hadoop.fs.s3a.endpoint: http://minio.minio.svc.cluster.local:9000
-    spark.hadoop.fs.s3a.path.style.access: "true"
-    spark.hadoop.fs.s3a.connection.ssl.enabled: "false"
-    spark.hadoop.fs.s3a.access.key: "{{ conn.minio_default.login }}"
-    spark.hadoop.fs.s3a.secret.key: "{{ conn.minio_default.password }}"
-    spark.hadoop.fs.s3a.impl: org.apache.hadoop.fs.s3a.S3AFileSystem
-    spark.hadoop.security.authentication: simple
-
-    spark.kubernetes.driver.request.cores: "100m"
-    spark.kubernetes.executor.request.cores: "100m"
-    spark.kubernetes.driver.memoryOverhead: "256m"
-    spark.kubernetes.executor.memoryOverhead: "256m"
-
-    spark.jars.ivy: /tmp/.ivy2
-    spark.kubernetes.submission.localDir: /tmp
-    spark.kubernetes.executor.deleteOnTermination: "false"
-""",
+        get_logs=True,
+        is_delete_operator_pod=True,
+        cmds=["/opt/bitnami/spark/bin/spark-submit"],
+        arguments=[
+            "--master", "local[*]",
+            "--conf", "spark.hadoop.security.authentication=simple",
+            "--conf", "spark.hadoop.fs.s3a.endpoint=http://minio.minio.svc.cluster.local:9000",
+            "--conf", "spark.hadoop.fs.s3a.path.style.access=true",
+            "--conf", "spark.hadoop.fs.s3a.connection.ssl.enabled=false",
+            "--conf", "spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem",
+            "--conf", "spark.hadoop.fs.s3a.access.key={{ conn.minio_default.login }}",
+            "--conf", "spark.hadoop.fs.s3a.secret.key={{ conn.minio_default.password }}",
+            "--conf", "spark.executorEnv.HADOOP_USER_NAME=spark",
+            "--conf", "spark.driver.extraJavaOptions=-Duser.name=spark",
+            "--conf", "spark.executor.extraJavaOptions=-Duser.name=spark",
+            "--packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262",
+            "local:///opt/bitnami/spark/examples/src/main/python/wordcount.py",
+            "s3a://earthquake-data/validation/source_file.txt",
+        ],
+        env_vars={
+            "USER": "spark",
+            "HADOOP_USER_NAME": "spark",
+            "JAVA_TOOL_OPTIONS": "-Duser.name=spark",
+        },
+        container_resources={
+            "request_cpu": "100m",
+            "request_memory": "512Mi",
+            "limit_cpu": "500m",
+            "limit_memory": "1Gi",
+        },
+        labels={"app": "spark-local-demo"},
     )
 
-    wait_spark = SparkKubernetesSensor(
-        task_id="wait_spark",
-        namespace=NS,
-        kubernetes_conn_id="kubernetes_default",
-        application_name="spark-validation-{{ ts_nodash }}",
-        attach_log=True,  # <- Driver logları Airflow loglarında görünecek
-        timeout=60*30,
-        poke_interval=10,
-        mode="reschedule",
-    )
+    write_minio >> run_spark_local
 
-    write_minio >> submit_spark >> wait_spark
-
-infra_validation()
+infra_validation_local()
