@@ -72,14 +72,14 @@ spec:
         mountPath: /opt/spark-apps
 
   sparkConf:
+    "spark.hadoop.security.authentication": "simple"
     "spark.kubernetes.driver.request.cores": "100m"
     "spark.kubernetes.executor.request.cores": "100m"
     "spark.kubernetes.driver.memoryOverhead": "256m"
     "spark.kubernetes.executor.memoryOverhead": "256m"
-    "spark.hadoop.security.authentication": "simple"
     "spark.kubernetes.driverEnv.USER": "spark"
     "spark.kubernetes.executorEnv.USER": "spark"
-    "spark.kubernetes.executorEnv.HADOOP_USER_NAME": "spark"
+    "spark.executorEnv.HADOOP_USER_NAME": "spark"
     "spark.kubernetes.driverEnv.JAVA_TOOL_OPTIONS": "-Duser.name=spark"
     "spark.kubernetes.executorEnv.JAVA_TOOL_OPTIONS": "-Duser.name=spark"
     "spark.driver.extraJavaOptions": "-Duser.name=spark"
