@@ -44,53 +44,53 @@ spec:
   imagePullPolicy: IfNotPresent
   sparkVersion: "3.5.0"
 
-  mainApplicationFile: local:///opt/bitnami/spark/examples/src/main/python/wordcount.py
+  mainApplicationFile: local:///opt/spark-apps/app.py
   arguments:
-    - "s3a://earthquake-data/validation/source_file.txt"
+    - "4"   
 
   restartPolicy:
     type: Never
+
+  # ConfigMap'i hem driver hem executor'a mount et
+  volumes:
+    - name: app
+      configMap:
+        name: spark-pi
 
   driver:
     serviceAccount: spark-sa
     cores: 1
     memory: "768m"
+    volumeMounts:
+      - name: app
+        mountPath: /opt/spark-apps
   executor:
     serviceAccount: spark-sa
     instances: 1
     cores: 1
     memory: "512m"
-
-  # Paketleri CRD ile ekle (hem driver hem executor indirir/kullanır)
-  deps:
-    packages:
-      - org.apache.hadoop:hadoop-aws:3.3.4
-      - com.amazonaws:aws-java-sdk-bundle:1.12.262
+    volumeMounts:
+      - name: app
+        mountPath: /opt/spark-apps
 
   sparkConf:
-    # Küçük cluster kaynakları
+    # küçük cluster kaynakları
     "spark.kubernetes.driver.request.cores": "100m"
     "spark.kubernetes.executor.request.cores": "100m"
     "spark.kubernetes.driver.memoryOverhead": "256m"
     "spark.kubernetes.executor.memoryOverhead": "256m"
 
-    # S3A / MinIO
-    "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
-    "spark.hadoop.fs.s3a.path.style.access": "true"
-    "spark.hadoop.fs.s3a.connection.ssl.enabled": "false"
-    "spark.hadoop.fs.s3a.access.key": "{{{{ conn.minio_default.login }}}}"
-    "spark.hadoop.fs.s3a.secret.key": "{{{{ conn.minio_default.password }}}}"
-    "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
-
-    # Hadoop auth’u basitleştir (Kerberos’a düşmesin)
+    # Kerberos saçmalığını kapat / user sabitle
     "spark.hadoop.security.authentication": "simple"
-
-    # Driver/Executor env (UGI’nin boş user ile çakılmasını engeller)
     "spark.kubernetes.driverEnv.USER": "spark"
     "spark.kubernetes.executorEnv.USER": "spark"
     "spark.kubernetes.executorEnv.HADOOP_USER_NAME": "spark"
+    "spark.kubernetes.driverEnv.JAVA_TOOL_OPTIONS": "-Duser.name=spark"
+    "spark.kubernetes.executorEnv.JAVA_TOOL_OPTIONS": "-Duser.name=spark"
+    "spark.driver.extraJavaOptions": "-Duser.name=spark"
+    "spark.executor.extraJavaOptions": "-Duser.name=spark"
 
-    # Ivy/tmp
+    # ivy/tmp
     "spark.jars.ivy": "/tmp/.ivy2"
     "spark.kubernetes.submission.localDir": "/tmp"
 """
