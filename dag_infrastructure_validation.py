@@ -1,11 +1,13 @@
 from __future__ import annotations
 import pendulum
-from airflow.decorators import dag
+from airflow.decorators import dag, task
 from airflow.providers.amazon.aws.operators.s3 import S3CreateObjectOperator
 from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKubernetesOperator
 from airflow.providers.cncf.kubernetes.sensors.spark_kubernetes import SparkKubernetesSensor
-# (İstersen işi bitince CRD’yi silmek için:)
-from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKubernetesDeleteOperator
+from airflow.providers.cncf.kubernetes.hooks.kubernetes import KubernetesHook
+
+APP_NAME = "spark-validation-{{ ds_nodash }}"
+NS = "spark-processing"
 
 @dag(
     dag_id="infrastructure_validation",
@@ -16,8 +18,7 @@ from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKu
 )
 def infrastructure_validation_dag():
 
-    # 1) MinIO’ya test dosyası yaz
-    create_test_file_in_minio = S3CreateObjectOperator(
+    write_minio = S3CreateObjectOperator(
         task_id="create_test_file_in_minio",
         aws_conn_id="minio_default",
         s3_bucket="earthquake-data",
@@ -26,17 +27,17 @@ def infrastructure_validation_dag():
         replace=True,
     )
 
-    # 2) SparkApplication CRD’yi oluştur (SUBMIT)
     submit_spark = SparkKubernetesOperator(
         task_id="submit_spark",
-        namespace="spark-processing",
+        namespace=NS,
         kubernetes_conn_id="kubernetes_default",
-        application_file="""
+        do_xcom_push=False,
+        application_file=f"""
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication
 metadata:
-  name: spark-validation-{{ ds_nodash }}
-  namespace: spark-processing
+  name: {APP_NAME}
+  namespace: {NS}
 spec:
   type: Python
   mode: cluster
@@ -69,38 +70,67 @@ spec:
     "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
     "spark.hadoop.fs.s3a.path.style.access": "true"
     "spark.hadoop.fs.s3a.connection.ssl.enabled": "false"
-    "spark.hadoop.fs.s3a.access.key": "{{ conn.minio_default.login }}"
-    "spark.hadoop.fs.s3a.secret.key": "{{ conn.minio_default.password }}"
+    "spark.hadoop.fs.s3a.access.key": "{{{{ conn.minio_default.login }}}}"
+    "spark.hadoop.fs.s3a.secret.key": "{{{{ conn.minio_default.password }}}}"
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
 
     "spark.jars.ivy": "/tmp/.ivy2"
     "spark.kubernetes.submission.localDir": "/tmp"
-""",
-        do_xcom_push=False,   # sadece CRD yaratıyoruz, beklemiyoruz
+"""
     )
 
-    # 3) SparkApplication durumunu bekle (COMPLETED/FAILED)
     wait_spark = SparkKubernetesSensor(
         task_id="wait_spark",
-        namespace="spark-processing",
+        namespace=NS,
         kubernetes_conn_id="kubernetes_default",
-        application_name="spark-validation-{{ ds_nodash }}",
-        attach_log=True,         # driver loglarını UI’a akıtmaya çalışır
-        timeout=60*30,           # 30 dk
-        poke_interval=10,        # her 10 sn’de bir kontrol
-        mode="reschedule",       # worker slotunu meşgul etmez
+        application_name=APP_NAME,
+        attach_log=True,
+        timeout=60*30,
+        poke_interval=10,
+        mode="reschedule",
     )
 
-    # 4) (Opsiyonel) İş bitince CRD’yi sil
-    cleanup = SparkKubernetesDeleteOperator(
-        task_id="cleanup_spark_app",
-        namespace="spark-processing",
-        kubernetes_conn_id="kubernetes_default",
-        application_name="spark-validation-{{ ds_nodash }}",
-        delete_on_termination=True,
-        trigger_rule="all_done",
-    )
+    @task(trigger_rule="all_done")
+    def cleanup():
+        """SparkApplication CRD’yi sil (DeleteOperator yerine)."""
+        hook = KubernetesHook(conn_id="kubernetes_default")
+        api = hook.get_conn()
+        from kubernetes import client
+        crd = client.CustomObjectsApi(api)
+        try:
+            crd.delete_namespaced_custom_object(
+                group="sparkoperator.k8s.io",
+                version="v1beta2",
+                namespace=NS,
+                plural="sparkapplications",
+                name=pendulum.now("UTC").format("YYYYMMDD"),  # <- yanlış! sadece örnek
+            )
+        except Exception as e:
+            # Task’ı fail etme; zaten all_done ile çalışıyoruz.
+            import logging
+            logging.info(f"Cleanup skip: {e}")
 
-    create_test_file_in_minio >> submit_spark >> wait_spark >> cleanup
+    # DÜZELTME: cleanup'ın doğru adı silmesi için Jinja kullan
+    # Python task içinde Jinja çalışmadığından adı param ile verelim:
+    @task(trigger_rule="all_done")
+    def cleanup_with_name(app_name: str):
+        hook = KubernetesHook(conn_id="kubernetes_default")
+        api = hook.get_conn()
+        from kubernetes import client
+        crd = client.CustomObjectsApi(api)
+        try:
+            crd.delete_namespaced_custom_object(
+                group="sparkoperator.k8s.io",
+                version="v1beta2",
+                namespace=NS,
+                plural="sparkapplications",
+                name=app_name,
+            )
+        except Exception as e:
+            import logging
+            logging.info(f"Cleanup skip: {e}")
+
+    app_name = APP_NAME  # string içinde Jinja var, Airflow runtime'da render eder
+    write_minio >> submit_spark >> wait_spark >> cleanup_with_name(app_name)
 
 infrastructure_validation_dag()
