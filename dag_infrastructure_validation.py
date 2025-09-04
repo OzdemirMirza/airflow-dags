@@ -4,10 +4,9 @@ from airflow.decorators import dag, task
 from airflow.providers.amazon.aws.operators.s3 import S3CreateObjectOperator
 from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKubernetesOperator
 from airflow.providers.cncf.kubernetes.sensors.spark_kubernetes import SparkKubernetesSensor
-from airflow.providers.cncf.kubernetes.hooks.kubernetes import KubernetesHook
 
-APP_NAME = "spark-validation-{{ ds_nodash }}"
 NS = "spark-processing"
+APP_NAME = "spark-validation-{{ ts_nodash }}"  # benzersiz isim
 
 @dag(
     dag_id="infrastructure_validation",
@@ -16,7 +15,7 @@ NS = "spark-processing"
     catchup=False,
     tags=["infra","spark","minio"],
 )
-def infrastructure_validation_dag():
+def infra_validation():
 
     write_minio = S3CreateObjectOperator(
         task_id="create_test_file_in_minio",
@@ -55,17 +54,17 @@ spec:
   driver:
     serviceAccount: spark-sa
     cores: 1
-    memory: "384m"
+    memory: "256m"
   executor:
     instances: 1
     cores: 1
-    memory: "384m"
+    memory: "256m"
 
   sparkConf:
-    "spark.kubernetes.driver.request.cores": "100m"
-    "spark.kubernetes.executor.request.cores": "100m"
-    "spark.kubernetes.driver.memoryOverhead": "128m"
-    "spark.kubernetes.executor.memoryOverhead": "128m"
+    "spark.kubernetes.driver.request.cores": "50m"
+    "spark.kubernetes.executor.request.cores": "50m"
+    "spark.kubernetes.driver.memoryOverhead": "64m"
+    "spark.kubernetes.executor.memoryOverhead": "64m"
 
     "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
     "spark.hadoop.fs.s3a.path.style.access": "true"
@@ -85,52 +84,11 @@ spec:
         kubernetes_conn_id="kubernetes_default",
         application_name=APP_NAME,
         attach_log=True,
-        timeout=60*30,
+        timeout=60*30,        # 30 dk
         poke_interval=10,
         mode="reschedule",
     )
 
-    @task(trigger_rule="all_done")
-    def cleanup():
-        """SparkApplication CRD’yi sil (DeleteOperator yerine)."""
-        hook = KubernetesHook(conn_id="kubernetes_default")
-        api = hook.get_conn()
-        from kubernetes import client
-        crd = client.CustomObjectsApi(api)
-        try:
-            crd.delete_namespaced_custom_object(
-                group="sparkoperator.k8s.io",
-                version="v1beta2",
-                namespace=NS,
-                plural="sparkapplications",
-                name=pendulum.now("UTC").format("YYYYMMDD"),  # <- yanlış! sadece örnek
-            )
-        except Exception as e:
-            # Task’ı fail etme; zaten all_done ile çalışıyoruz.
-            import logging
-            logging.info(f"Cleanup skip: {e}")
+    write_minio >> submit_spark >> wait_spark
 
-    # DÜZELTME: cleanup'ın doğru adı silmesi için Jinja kullan
-    # Python task içinde Jinja çalışmadığından adı param ile verelim:
-    @task(trigger_rule="all_done")
-    def cleanup_with_name(app_name: str):
-        hook = KubernetesHook(conn_id="kubernetes_default")
-        api = hook.get_conn()
-        from kubernetes import client
-        crd = client.CustomObjectsApi(api)
-        try:
-            crd.delete_namespaced_custom_object(
-                group="sparkoperator.k8s.io",
-                version="v1beta2",
-                namespace=NS,
-                plural="sparkapplications",
-                name=app_name,
-            )
-        except Exception as e:
-            import logging
-            logging.info(f"Cleanup skip: {e}")
-
-    app_name = APP_NAME  # string içinde Jinja var, Airflow runtime'da render eder
-    write_minio >> submit_spark >> wait_spark >> cleanup_with_name(app_name)
-
-infrastructure_validation_dag()
+infra_validation()
