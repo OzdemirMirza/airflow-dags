@@ -19,7 +19,7 @@ def infrastructure_validation_dag():
         s3_key="validation/source_file.txt",
         data="Infrastructure validation successful!",
         replace=True,
-    )
+    ) 
 
     read_file_with_spark = SparkKubernetesOperator(
     task_id="read_file_with_spark",
@@ -33,11 +33,11 @@ metadata:
 spec:
   type: Python
   mode: cluster
-  image: ghcr.io/apache/spark-py:v3.5.1
+  image: bitnami/spark:3.5.0  
   imagePullPolicy: IfNotPresent
-  sparkVersion: "3.5.1"
+  sparkVersion: "3.5.0"
 
-  mainApplicationFile: local:///opt/spark/examples/src/main/python/wordcount.py
+  mainApplicationFile: local:///opt/bitnami/spark/examples/src/main/python/wordcount.py
   arguments:
     - "s3a://earthquake-data/validation/source_file.txt"
 
