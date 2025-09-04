@@ -1,6 +1,6 @@
 from __future__ import annotations
 import pendulum
-from airflow.decorators import dag, task
+from airflow.decorators import dag
 from airflow.providers.amazon.aws.operators.s3 import S3CreateObjectOperator
 from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKubernetesOperator
 from airflow.providers.cncf.kubernetes.sensors.spark_kubernetes import SparkKubernetesSensor
@@ -55,21 +55,34 @@ spec:
     serviceAccount: spark-sa
     cores: 1
     memory: "768m"
+    env:
+      - name: USER
+        value: "spark"
+      - name: HADOOP_USER_NAME
+        value: "spark"
+      - name: JAVA_TOOL_OPTIONS
+        value: "-Duser.name=spark"
+
   executor:
+    serviceAccount: spark-sa
     instances: 1
     cores: 1
     memory: "512m"
+    env:
+      - name: USER
+        value: "spark"
+      - name: HADOOP_USER_NAME
+        value: "spark"
+      - name: JAVA_TOOL_OPTIONS
+        value: "-Duser.name=spark"
 
   sparkConf:
     "spark.kubernetes.driver.request.cores": "100m"
     "spark.kubernetes.executor.request.cores": "100m"
     "spark.kubernetes.driver.memoryOverhead": "256m"
     "spark.kubernetes.executor.memoryOverhead": "256m"
-    
-    
-    "spark.driver.memory": "768m"
-    "spark.executor.memory": "512m"
 
+    "spark.hadoop.security.authentication": "simple"
 
     "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
     "spark.hadoop.fs.s3a.path.style.access": "true"
@@ -80,6 +93,11 @@ spec:
 
     "spark.jars.ivy": "/tmp/.ivy2"
     "spark.kubernetes.submission.localDir": "/tmp"
+
+  deps:
+    packages:
+      - "org.apache.hadoop:hadoop-aws:3.3.4"
+      - "com.amazonaws:aws-java-sdk-bundle:1.12.262"
 """
     )
 
@@ -89,7 +107,7 @@ spec:
         kubernetes_conn_id="kubernetes_default",
         application_name=APP_NAME,
         attach_log=True,
-        timeout=60*30,        # 30 dk
+        timeout=60*30,
         poke_interval=10,
         mode="reschedule",
     )
