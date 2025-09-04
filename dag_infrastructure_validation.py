@@ -31,7 +31,7 @@ def infra_validation():
         namespace=NS,
         kubernetes_conn_id="kubernetes_default",
         do_xcom_push=False,
-        application_file=f"""
+        application_file="""
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication
 metadata:
