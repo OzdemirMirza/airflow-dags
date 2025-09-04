@@ -1,42 +1,31 @@
 from __future__ import annotations
 import pendulum
-from airflow.decorators import dag
-from airflow.providers.amazon.aws.operators.s3 import S3CreateObjectOperator
 from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKubernetesOperator
 from airflow.providers.cncf.kubernetes.sensors.spark_kubernetes import SparkKubernetesSensor
 
 NS = "spark-processing"
-APP_NAME = "spark-validation-{{ ts_nodash }}"  # benzersiz isim
+APP_NAME = "pi-validation-{{ ts_nodash }}"  # benzersiz isim
 
 @dag(
-    dag_id="infrastructure_validation",
-    start_date=pendulum.datetime(2025, 9, 3, tz="Europe/Istanbul"),
+    dag_id="pi_smoke",
+    start_date=pendulum.datetime(2025, 9, 4, tz="Europe/Istanbul"),
     schedule=None,
     catchup=False,
-    tags=["infra","spark","minio"],
+    tags=["smoke","spark"],
 )
-def infra_validation():
+def _pi_smoke():
 
-    write_minio = S3CreateObjectOperator(
-        task_id="create_test_file_in_minio",
-        aws_conn_id="minio_default",
-        s3_bucket="earthquake-data",
-        s3_key="validation/source_file.txt",
-        data="Infrastructure validation successful!",
-        replace=True,
-    )
-
-    submit_spark = SparkKubernetesOperator(
-        task_id="submit_spark",
+    submit = SparkKubernetesOperator(
+        task_id="submit_pi",
         namespace=NS,
         kubernetes_conn_id="kubernetes_default",
         do_xcom_push=False,
-        application_file="""
+        application_file=f"""
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication
 metadata:
-  name: {{ APP_NAME }}
-  namespace: spark-processing
+  name: {APP_NAME}
+  namespace: {NS}
 spec:
   type: Python
   mode: cluster
@@ -44,62 +33,73 @@ spec:
   imagePullPolicy: IfNotPresent
   sparkVersion: "3.5.0"
 
+  # ConfigMap'ten mount ettiğimiz dosya
   mainApplicationFile: local:///opt/spark-apps/app.py
-  arguments: ["4"]
+  arguments:
+    - "4"   # part sayısı
 
   restartPolicy:
     type: Never
 
-  volumes:
-    - name: app
-      configMap:
-        name: spark-pi
-
   driver:
     serviceAccount: spark-sa
     cores: 1
-    memory: "768m"
+    memory: "512m"
+    env:
+      - name: USER
+        value: "spark"
+      - name: HADOOP_USER_NAME
+        value: "spark"
+      - name: JAVA_TOOL_OPTIONS
+        value: "-Duser.name=spark"
     volumeMounts:
-      - name: app
+      - name: app-volume
         mountPath: /opt/spark-apps
+
   executor:
-    serviceAccount: spark-sa
     instances: 1
     cores: 1
     memory: "512m"
+    serviceAccount: spark-sa
+    env:
+      - name: USER
+        value: "spark"
+      - name: HADOOP_USER_NAME
+        value: "spark"
+      - name: JAVA_TOOL_OPTIONS
+        value: "-Duser.name=spark"
     volumeMounts:
-      - name: app
+      - name: app-volume
         mountPath: /opt/spark-apps
 
+  volumes:
+    - name: app-volume
+      configMap:
+        name: spark-pi
+        items:
+          - key: app.py
+            path: app.py
+
   sparkConf:
-    "spark.hadoop.security.authentication": "simple"
     "spark.kubernetes.driver.request.cores": "100m"
     "spark.kubernetes.executor.request.cores": "100m"
-    "spark.kubernetes.driver.memoryOverhead": "256m"
-    "spark.kubernetes.executor.memoryOverhead": "256m"
-    "spark.kubernetes.driverEnv.USER": "spark"
-    "spark.kubernetes.executorEnv.USER": "spark"
-    "spark.executorEnv.HADOOP_USER_NAME": "spark"
-    "spark.kubernetes.driverEnv.JAVA_TOOL_OPTIONS": "-Duser.name=spark"
-    "spark.kubernetes.executorEnv.JAVA_TOOL_OPTIONS": "-Duser.name=spark"
+    "spark.kubernetes.executor.deleteOnTermination": "false"
     "spark.driver.extraJavaOptions": "-Duser.name=spark"
     "spark.executor.extraJavaOptions": "-Duser.name=spark"
-    "spark.jars.ivy": "/tmp/.ivy2"
-    "spark.kubernetes.submission.localDir": "/tmp"
 """
     )
 
-    wait_spark = SparkKubernetesSensor(
-        task_id="wait_spark",
+    wait = SparkKubernetesSensor(
+        task_id="wait_pi",
         namespace=NS,
         kubernetes_conn_id="kubernetes_default",
         application_name=APP_NAME,
         attach_log=True,
-        timeout=60*30,
+        timeout=60*15,
         poke_interval=10,
         mode="reschedule",
     )
 
-    write_minio >> submit_spark >> wait_spark
+    submit >> wait
 
-infra_validation()
+pi_smoke = _pi_smoke()
