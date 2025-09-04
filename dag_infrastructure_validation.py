@@ -35,7 +35,7 @@ def infra_validation():
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication
 metadata:
-  name: spark-validation-{{ ts_nodash }}
+  name: {{ APP_NAME }}
   namespace: spark-processing
 spec:
   type: Python
@@ -48,50 +48,51 @@ spec:
   arguments:
     - "s3a://earthquake-data/validation/source_file.txt"
 
-  restartPolicy: { type: Never }
+  restartPolicy:
+    type: Never
 
   driver:
     serviceAccount: spark-sa
     cores: 1
     memory: "768m"
-    env:
-      - { name: USER, value: "spark" }
-      - { name: HADOOP_USER_NAME, value: "spark" }
-      - { name: JAVA_TOOL_OPTIONS, value: "-Duser.name=spark" }
-
   executor:
     serviceAccount: spark-sa
     instances: 1
     cores: 1
     memory: "512m"
-    env:
-      - { name: USER, value: "spark" }
-      - { name: HADOOP_USER_NAME, value: "spark" }
-      - { name: JAVA_TOOL_OPTIONS, value: "-Duser.name=spark" }
+
+  # Paketleri CRD ile ekle (hem driver hem executor indirir/kullanır)
+  deps:
+    packages:
+      - org.apache.hadoop:hadoop-aws:3.3.4
+      - com.amazonaws:aws-java-sdk-bundle:1.12.262
 
   sparkConf:
-    "spark.hadoop.security.authentication": "simple"
+    # Küçük cluster kaynakları
     "spark.kubernetes.driver.request.cores": "100m"
     "spark.kubernetes.executor.request.cores": "100m"
     "spark.kubernetes.driver.memoryOverhead": "256m"
     "spark.kubernetes.executor.memoryOverhead": "256m"
 
-    # MinIO
+    # S3A / MinIO
     "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
     "spark.hadoop.fs.s3a.path.style.access": "true"
     "spark.hadoop.fs.s3a.connection.ssl.enabled": "false"
-    "spark.hadoop.fs.s3a.access.key": "{{ conn.minio_default.login }}"
-    "spark.hadoop.fs.s3a.secret.key": "{{ conn.minio_default.password }}"
+    "spark.hadoop.fs.s3a.access.key": "{{{{ conn.minio_default.login }}}}"
+    "spark.hadoop.fs.s3a.secret.key": "{{{{ conn.minio_default.password }}}}"
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+
+    # Hadoop auth’u basitleştir (Kerberos’a düşmesin)
+    "spark.hadoop.security.authentication": "simple"
+
+    # Driver/Executor env (UGI’nin boş user ile çakılmasını engeller)
+    "spark.kubernetes.driverEnv.USER": "spark"
+    "spark.kubernetes.executorEnv.USER": "spark"
+    "spark.kubernetes.executorEnv.HADOOP_USER_NAME": "spark"
 
     # Ivy/tmp
     "spark.jars.ivy": "/tmp/.ivy2"
     "spark.kubernetes.submission.localDir": "/tmp"
-
-  deps:
-    packages:
-      - "org.apache.hadoop:hadoop-aws:3.3.4"
-      - "com.amazonaws:aws-java-sdk-bundle:1.12.262"
 """
     )
 
