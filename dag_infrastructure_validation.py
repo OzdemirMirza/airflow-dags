@@ -6,7 +6,6 @@ from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKu
 from airflow.providers.cncf.kubernetes.sensors.spark_kubernetes import SparkKubernetesSensor
 
 NS = "spark-processing"
-APP_NAME = "spark-validation-{{ ts_nodash }}"  # Jinja burada çözülecek
 
 @dag(
     dag_id="infrastructure_validation",
@@ -17,17 +16,15 @@ APP_NAME = "spark-validation-{{ ts_nodash }}"  # Jinja burada çözülecek
 )
 def infra_validation():
 
-    # 1) MinIO’ya test dosyası yaz
     write_minio = S3CreateObjectOperator(
         task_id="create_test_file_in_minio",
-        aws_conn_id="minio_default",            # Airflow Connection: login/secret ve endpoint burada olmalı
+        aws_conn_id="minio_default",
         s3_bucket="earthquake-data",
         s3_key="validation/source_file.txt",
         data="Infrastructure validation successful!",
         replace=True,
     )
 
-    # 2) SparkApplication gönder (MinIO’dan okuyacak)
     submit_spark = SparkKubernetesOperator(
         task_id="submit_spark",
         namespace=NS,
@@ -48,7 +45,7 @@ spec:
 
   mainApplicationFile: local:///opt/bitnami/spark/examples/src/main/python/wordcount.py
   arguments:
-    - "s3a://earthquake-data/validation/source_file.txt"
+    - s3a://earthquake-data/validation/source_file.txt
 
   restartPolicy:
     type: Never
@@ -57,6 +54,7 @@ spec:
     serviceAccount: spark-sa
     cores: 1
     memory: "768m"
+
   executor:
     serviceAccount: spark-sa
     instances: 1
@@ -69,39 +67,37 @@ spec:
       - com.amazonaws:aws-java-sdk-bundle:1.12.262
 
   sparkConf:
-    # Küçük cluster istekleri
-    "spark.kubernetes.driver.request.cores": "100m"
-    "spark.kubernetes.executor.request.cores": "100m"
-    "spark.kubernetes.driver.memoryOverhead": "256m"
-    "spark.kubernetes.executor.memoryOverhead": "256m"
+    # MinIO / S3A
+    spark.hadoop.fs.s3a.endpoint: http://minio.minio.svc.cluster.local:9000
+    spark.hadoop.fs.s3a.path.style.access: "true"
+    spark.hadoop.fs.s3a.connection.ssl.enabled: "false"
+    spark.hadoop.fs.s3a.access.key: "{{ conn.minio_default.login }}"
+    spark.hadoop.fs.s3a.secret.key: "{{ conn.minio_default.password }}"
+    spark.hadoop.fs.s3a.impl: org.apache.hadoop.fs.s3a.S3AFileSystem
 
-    # MinIO (S3A)
-    "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
-    "spark.hadoop.fs.s3a.path.style.access": "true"
-    "spark.hadoop.fs.s3a.connection.ssl.enabled": "false"
-    "spark.hadoop.fs.s3a.access.key": "{{ conn.minio_default.login }}"
-    "spark.hadoop.fs.s3a.secret.key": "{{ conn.minio_default.password }}"
-    "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
-    "spark.hadoop.fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+    # Kerberos'a düşmesin
+    spark.hadoop.security.authentication: simple
+    spark.kubernetes.driverEnv.USER: spark
+    spark.kubernetes.executorEnv.USER: spark
+    spark.kubernetes.executorEnv.HADOOP_USER_NAME: spark
 
-    # Kerberos'a düşmesin, user boş olmasın
-    "spark.hadoop.security.authentication": "simple"
-    "spark.kubernetes.driverEnv.USER": "spark"
-    "spark.kubernetes.executorEnv.USER": "spark"
-    "spark.kubernetes.executorEnv.HADOOP_USER_NAME": "spark"
+    # Küçük cluster kaynakları
+    spark.kubernetes.driver.request.cores: "100m"
+    spark.kubernetes.executor.request.cores: "100m"
+    spark.kubernetes.driver.memoryOverhead: "256m"
+    spark.kubernetes.executor.memoryOverhead: "256m"
 
     # Ivy/tmp
-    "spark.jars.ivy": "/tmp/.ivy2"
-    "spark.kubernetes.submission.localDir": "/tmp"
+    spark.jars.ivy: /tmp/.ivy2
+    spark.kubernetes.submission.localDir: /tmp
 """,
     )
 
-    # 3) SparkApplication tamamlanana kadar bekle
     wait_spark = SparkKubernetesSensor(
         task_id="wait_spark",
         namespace=NS,
         kubernetes_conn_id="kubernetes_default",
-        application_name=APP_NAME,   # "spark-validation-{{ ts_nodash }}"
+        application_name="spark-validation-{{ ts_nodash }}",
         attach_log=True,
         timeout=60*30,
         poke_interval=10,
