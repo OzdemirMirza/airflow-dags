@@ -54,17 +54,22 @@ spec:
   driver:
     serviceAccount: spark-sa
     cores: 1
-    memory: "256m"
+    memory: "768m"
   executor:
     instances: 1
     cores: 1
-    memory: "256m"
+    memory: "512m"
 
   sparkConf:
-    "spark.kubernetes.driver.request.cores": "50m"
-    "spark.kubernetes.executor.request.cores": "50m"
-    "spark.kubernetes.driver.memoryOverhead": "64m"
-    "spark.kubernetes.executor.memoryOverhead": "64m"
+    "spark.kubernetes.driver.request.cores": "100m"
+    "spark.kubernetes.executor.request.cores": "100m"
+    "spark.kubernetes.driver.memoryOverhead": "256m"
+    "spark.kubernetes.executor.memoryOverhead": "256m"
+    
+    
+    "spark.driver.memory": "768m"
+    "spark.executor.memory": "512m"
+
 
     "spark.hadoop.fs.s3a.endpoint": "http://minio.minio.svc.cluster.local:9000"
     "spark.hadoop.fs.s3a.path.style.access": "true"
