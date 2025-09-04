@@ -1,10 +1,11 @@
 from __future__ import annotations
 import pendulum
+from airflow.decorators import dag
 from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKubernetesOperator
 from airflow.providers.cncf.kubernetes.sensors.spark_kubernetes import SparkKubernetesSensor
 
 NS = "spark-processing"
-APP_NAME = "pi-validation-{{ ts_nodash }}"  # benzersiz isim
+APP_NAME = "pi-validation-{{ ts_nodash }}"
 
 @dag(
     dag_id="pi_smoke",
@@ -14,7 +15,6 @@ APP_NAME = "pi-validation-{{ ts_nodash }}"  # benzersiz isim
     tags=["smoke","spark"],
 )
 def _pi_smoke():
-
     submit = SparkKubernetesOperator(
         task_id="submit_pi",
         namespace=NS,
@@ -33,10 +33,8 @@ spec:
   imagePullPolicy: IfNotPresent
   sparkVersion: "3.5.0"
 
-  # ConfigMap'ten mount ettiğimiz dosya
   mainApplicationFile: local:///opt/spark-apps/app.py
-  arguments:
-    - "4"   # part sayısı
+  arguments: ["4"]
 
   restartPolicy:
     type: Never
@@ -99,7 +97,6 @@ spec:
         poke_interval=10,
         mode="reschedule",
     )
-
     submit >> wait
 
 pi_smoke = _pi_smoke()
