@@ -16,7 +16,6 @@ NS = "spark-processing"
 )
 def infra_validation():
 
-    # 1) MinIO'ya test dosyası yaz
     write_minio = S3CreateObjectOperator(
         task_id="create_test_file_in_minio",
         aws_conn_id="minio_default",
@@ -26,7 +25,6 @@ def infra_validation():
         replace=True,
     )
 
-    # 2) SparkApplication gönder (K8s CRD)
     submit_spark = SparkKubernetesOperator(
         task_id="submit_spark",
         namespace=NS,
@@ -45,13 +43,11 @@ spec:
   imagePullPolicy: IfNotPresent
   sparkVersion: "3.5.0"
 
-  # Kod: ConfigMap'ten mount edip local:/// ile çalıştırıyoruz
   mainApplicationFile: local:///opt/spark-apps/app.py
 
   restartPolicy:
     type: Never
 
-  # Hem driver hem executor aynı SA ve env ile
   driver:
     serviceAccount: spark-sa
     cores: 1
@@ -79,52 +75,42 @@ spec:
       - name: app-code
         mountPath: /opt/spark-apps
 
-  # ConfigMap'i her iki tarafa mount et
   volumes:
     - name: app-code
       configMap:
         name: spark-app
 
-  # S3A bağımlılıkları (driver & executor otomatik indirir)
   deps:
     packages:
       - org.apache.hadoop:hadoop-aws:3.3.4
       - com.amazonaws:aws-java-sdk-bundle:1.12.262
 
   sparkConf:
-    # MinIO / S3A
     spark.hadoop.fs.s3a.endpoint: http://minio.minio.svc.cluster.local:9000
     spark.hadoop.fs.s3a.path.style.access: "true"
     spark.hadoop.fs.s3a.connection.ssl.enabled: "false"
     spark.hadoop.fs.s3a.access.key: "{{ conn.minio_default.login }}"
     spark.hadoop.fs.s3a.secret.key: "{{ conn.minio_default.password }}"
     spark.hadoop.fs.s3a.impl: org.apache.hadoop.fs.s3a.S3AFileSystem
-
-    # Kerberos'a düşmesin
     spark.hadoop.security.authentication: simple
 
-    # Küçük cluster kaynakları
     spark.kubernetes.driver.request.cores: "100m"
     spark.kubernetes.executor.request.cores: "100m"
     spark.kubernetes.driver.memoryOverhead: "256m"
     spark.kubernetes.executor.memoryOverhead: "256m"
 
-    # Ivy/tmp
     spark.jars.ivy: /tmp/.ivy2
     spark.kubernetes.submission.localDir: /tmp
-
-    # Debug için (executor düşse de log kalır)
     spark.kubernetes.executor.deleteOnTermination: "false"
 """,
     )
 
-    # 3) Spark bitti mi sensörle bekle
     wait_spark = SparkKubernetesSensor(
         task_id="wait_spark",
         namespace=NS,
         kubernetes_conn_id="kubernetes_default",
         application_name="spark-validation-{{ ts_nodash }}",
-        attach_log=True,
+        attach_log=True,  # <- Driver logları Airflow loglarında görünecek
         timeout=60*30,
         poke_interval=10,
         mode="reschedule",
