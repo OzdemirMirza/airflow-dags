@@ -17,7 +17,7 @@ spec:
     cores: 1
     coreLimit: "1200m"
     memory: "512m"
-    serviceAccount: spark
+    serviceAccount: airflow-worker
   executor:
     cores: 1
     instances: 1

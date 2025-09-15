@@ -14,8 +14,8 @@ default_args = {
 
 with DAG(
     dag_id="spark_pi",
-    start_date=pendulum.datetime(2025, 9, 1, tz="UTC"),  # başlangıç tarihi
-    schedule="@daily",  # <--- schedule_interval yerine schedule
+    start_date=pendulum.datetime(2025, 9, 1, tz="UTC"),  
+    schedule="@daily",  
     catchup=False,
     default_args=default_args,
     tags=["example"],
@@ -24,7 +24,7 @@ with DAG(
     submit = SparkKubernetesOperator(
         task_id="spark_transform_data",
         namespace="spark-operator",
-        application_file="/repo/kubernetes/spark-pi.yaml",  # DAG klasöründeki yaml path’in
+        application_file="/repo/kubernetes/spark-pi.yaml",  
         kubernetes_conn_id="kubernetes_default",
         do_xcom_push=True,
     )
