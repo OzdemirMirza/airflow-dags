@@ -24,7 +24,7 @@ with DAG(
     submit = SparkKubernetesOperator(
         task_id="spark_transform_data",
         namespace="spark-operator",
-        application_file="/kubernetes/spark-pi.yaml",  # DAG klasöründeki yaml path’in
+        application_file="/repo/kubernetes/spark-pi.yaml",  # DAG klasöründeki yaml path’in
         kubernetes_conn_id="kubernetes_default",
         do_xcom_push=True,
     )
