@@ -44,13 +44,13 @@ we successfully submitted and monitored a Spark job from the Airflow UI.
 </p>
 
 ---
-
+```bash
 🛠️ Key Technologies
 	•	✈️ Apache Airflow (KubernetesExecutor, Git-Sync)
 	•	☸️ Kubernetes (Kind cluster for local testing)
 	•	🔥 Spark Operator (running Spark jobs as CRDs)
 	•	🐳 Docker (base images for Airflow and Spark)
-
+```
 
 ---
 
