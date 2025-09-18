@@ -20,15 +20,14 @@ Airflow DAGs are synced from a Git repository (via `git-sync`) and executed on d
 ---
 
 ## 📂 Project Structure
-```bash
+
 airflow-dags/
 ├── kubernetes/
 │   └── spark-pi.yaml        # SparkApplication definition
 ├── dag_infrastructure_validation.py
 └── README.md
-'''
----
 
+---
 📊 Demo
 
 After configuring Airflow with KubernetesExecutor and Spark Operator,
