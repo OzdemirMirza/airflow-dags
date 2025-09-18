@@ -26,6 +26,7 @@ airflow-dags/
 │   └── spark-pi.yaml        # SparkApplication definition
 ├── dag_infrastructure_validation.py
 └── README.md
+'''
 ---
 
 📊 Demo
@@ -34,7 +35,7 @@ After configuring Airflow with KubernetesExecutor and Spark Operator,
 we successfully submitted and monitored a Spark job from the Airflow UI.
 
 🔹 DAG Graph
-![DAG Graph](images/spark-pi-graph.jpeg)
+![DAG Graph](images/spark-pi-graph.png)
 
 🔹 Task Success
 ![Task Success](images/task-success.png)
