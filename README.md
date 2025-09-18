@@ -28,16 +28,18 @@ airflow-dags/
 └── README.md
 
 ---
-📊 Demo
+## 📊 Demo
 
 After configuring Airflow with KubernetesExecutor and Spark Operator,
 we successfully submitted and monitored a Spark job from the Airflow UI.
 
-### DAG Graph
-![DAG Graph](images/spark-pi-graph.png)
+<p align="center">
+  <img src="images/spark-pi-graph.png" alt="DAG Graph" width="720">
+</p>
 
-### Task Success
-![Task Success](images/task-success.png)
+<p align="center">
+  <img src="images/task-success.png" alt="Task Success" width="420">
+</p>
 
 ---
 
